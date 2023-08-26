@@ -9,40 +9,42 @@ import {
   AccordionItem,
   AccordionPanel,
   Box,
+  Button,
   Checkbox,
   Divider,
   Grid,
   GridItem,
   HStack,
   Heading,
+  Input,
   Stack,
   Text,
 } from '@chakra-ui/react';
 import { OnProgressProps } from 'react-player/base';
 const fs = require('fs');
 
-const DIR_PATH = `D:\\E-Learning\\AZ204\\AZ204 Developing Solutions for Microsoft Azure  NEW`;
-const PROGRESS_FILE_PATH = `${DIR_PATH}\\progress.json`;
+const defaultProgress = {
+  currentVideoId: null,
+  dict: {},
+}
+const loadProgress = (dirPath: string) => {
+  const filePath = `${dirPath}\\progress.json`;
 
-const loadProgress = () => {
   try {
-    return JSON.parse(fs.readFileSync(PROGRESS_FILE_PATH, 'utf8'));
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch (error) {
-    return {
-      currentVideoId: null,
-      dict: {},
-    };
+    return defaultProgress
   }
 };
 
 export function Video() {
+  const [dirPath, setDirPath] = useState<string>('');
   const [playingVideo, setPlayingVideo] = useState<any>(null);
-  const [progress, setProgress] = useState<any>(loadProgress());
-
-  const folders = fs.readdirSync(DIR_PATH) || [];
+  const [progress, setProgress] = useState<any>(defaultProgress);
+  const [folders, setFolders] = useState<string[]>([]);
   const sections =
     (folders.map((folderName: string) => {
-      const folderPath = `${DIR_PATH}\\${folderName}`;
+      const folderPath = `${dirPath}\\${folderName}`;
       if (!fs.lstatSync(folderPath).isDirectory()) return;
 
       const files = fs.readdirSync(folderPath);
@@ -69,9 +71,6 @@ export function Video() {
     (section: any) => section?.videos || []
   ) as any[];
 
-  console.log("🚀 ~ file: Video.tsx:44 ~ Video ~ sections:", sections)
-
-
   const loadBlobFromPath = (path: string) => {
     const buffer = fs.readFileSync(path);
     return new Blob([buffer]);
@@ -84,7 +83,10 @@ export function Video() {
   const updateProgress = (newProgress: any) => {
     const mergedProgress = merge(progress, newProgress);
     setProgress({ ...mergedProgress });
-    fs.writeFileSync(PROGRESS_FILE_PATH, JSON.stringify(mergedProgress));
+    fs.writeFileSync(
+      `${dirPath}\\progress.json`,
+      JSON.stringify(mergedProgress, null, 2)
+    );
   };
 
   const playVideo = async (videoId: string) => {
@@ -161,6 +163,35 @@ export function Video() {
     }
   }, [progress?.currentVideoId, playingVideo]);
 
+  useEffect(() => {
+    if (!dirPath) return;
+    if (folders.length === 0) return;
+
+    setProgress(loadProgress(dirPath));
+  }, [folders, dirPath])
+
+  if (folders.length === 0)
+    return (
+      <div>
+        <Input
+          placeholder="Enter directory path"
+          type="text"
+          onChange={(e) => setDirPath(e.target.value)}
+        />
+        <Button
+          onClick={() => {
+            try {
+              setFolders(fs.readdirSync(dirPath));
+            } catch (error) {
+              setDirPath('');
+            }
+          }}
+        >
+          Submit
+        </Button>
+      </div>
+    );
+
   return (
     <div>
       <Grid w="100%" h="100vh" templateColumns="repeat(6, 1fr)" gap={4}>
@@ -203,7 +234,7 @@ export function Video() {
                         }
                       >
                         <Checkbox
-                          isChecked={progress?.dict[video.id]?.checked}
+                          isChecked={(progress?.dict[video?.id]?.checked)}
                           onChange={(e) =>
                             setCheckVideo(video.id, e.target.checked)
                           }
