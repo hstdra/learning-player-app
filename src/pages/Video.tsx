@@ -45,7 +45,7 @@ async function getVideoSecondDurationAsync(path: string) {
 function toTimeString(totalSeconds: number) {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = Math.floor((totalSeconds % 60));
+  const seconds = Math.floor(totalSeconds % 60);
 
   if (hours > 0) {
     return `${hours}h${minutes.toString().padStart(2, '0')}m`;
@@ -69,6 +69,16 @@ const loadProgress = (dirPath: string) => {
     return defaultProgress;
   }
 };
+
+const loadBlobFromPath = (path: string) => {
+  const buffer = fs.readFileSync(path);
+  return new Blob([buffer]);
+};
+
+const loadBlobUrlFromPath = (path: string) => {
+  return URL.createObjectURL(loadBlobFromPath(path));
+};
+
 export function Video() {
   const [dirPath, setDirPath] = useState<string>('');
   const [playingVideo, setPlayingVideo] = useState<any>(null);
@@ -79,15 +89,6 @@ export function Video() {
   const videos = sections?.flatMap(
     (section: any) => section?.videos || []
   ) as any[];
-
-  const loadBlobFromPath = (path: string) => {
-    const buffer = fs.readFileSync(path);
-    return new Blob([buffer]);
-  };
-
-  const loadBlobUrlFromPath = (path: string) => {
-    return URL.createObjectURL(loadBlobFromPath(path));
-  };
 
   const updateProgress = (newProgress: any) => {
     const mergedProgress = merge(progress, newProgress);
@@ -174,18 +175,19 @@ export function Video() {
   };
 
   useEffect(() => {
-    if (!playingVideo && !!progress?.currentVideoId) {
+    if (!playingVideo && !!progress?.currentVideoId && videos.length > 0) {
       playVideo(progress.currentVideoId);
     }
-  }, [progress?.currentVideoId, playingVideo]);
+  }, [progress?.currentVideoId, playingVideo, videos.length]);
 
   useEffect(() => {
     if (!dirPath) return;
     if (folders.length === 0) return;
 
     setProgress(loadProgress(dirPath));
-  }, [folders, dirPath]);
+  }, [folders, dirPath, setProgress, loadProgress]);
 
+  // Compute sections when folders changed
   useEffect(() => {
     if (folders.length === 0) return;
 
@@ -266,11 +268,17 @@ export function Video() {
                       {i + 1}. {section?.name}
                     </Heading>
                     <Heading as="h4" size="xs" color="gray.500">
-                      {section.videos.filter((video: any) => progress?.dict[video?.id]?.checked).length}/{section.videos.length} videos |{' '}
+                      {
+                        section.videos.filter(
+                          (video: any) => progress?.dict[video?.id]?.checked
+                        ).length
+                      }
+                      /{section.videos.length} videos |{' '}
                       {toTimeString(
                         section.videos.reduce(
-                          (acc: any, video: any) => acc + video.duration
-                        , 0)
+                          (acc: any, video: any) => acc + video.duration,
+                          0
+                        )
                       )}
                     </Heading>
                   </Box>
