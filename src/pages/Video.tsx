@@ -1,4 +1,4 @@
-import ReactPlayer, { Config } from 'react-player';
+import ReactPlayer from 'react-player';
 import toWebVTT from 'srt-webvtt';
 import { useEffect, useState } from 'react';
 import { merge } from 'lodash';
@@ -22,21 +22,21 @@ import {
 } from '@chakra-ui/react';
 import { OnProgressProps } from 'react-player/base';
 const fs = require('fs');
+const path = require('path');
 
 const defaultProgress = {
   currentVideoId: null,
   dict: {},
-}
+};
 const loadProgress = (dirPath: string) => {
   const filePath = `${dirPath}\\progress.json`;
 
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
   } catch (error) {
-    return defaultProgress
+    return defaultProgress;
   }
 };
-
 export function Video() {
   const [dirPath, setDirPath] = useState<string>('');
   const [playingVideo, setPlayingVideo] = useState<any>(null);
@@ -44,20 +44,21 @@ export function Video() {
   const [folders, setFolders] = useState<string[]>([]);
   const sections =
     (folders.map((folderName: string) => {
-      const folderPath = `${dirPath}\\${folderName}`;
-      if (!fs.lstatSync(folderPath).isDirectory()) return;
-
+      const folderPath = path.join(dirPath, folderName);
       const files = fs.readdirSync(folderPath);
       const videos = files
         .filter((fileName: string) => fileName.endsWith('.mp4'))
         .map((fileName: string) => {
-          const path = `${folderPath}\\${fileName}`;
-          const srtPath = `${folderPath}\\${fileName.replace('.mp4', '.srt')}`;
+          const videoPath = path.join(folderPath, fileName);
+          const srtPath = path.join(
+            folderPath,
+            fileName.replace('.mp4', '.srt')
+          );
           return {
             id: `${folderName}-${fileName}`,
             section: folderName,
             name: fileName.replace('.mp4', ''),
-            path,
+            path: videoPath,
             srtPath,
           };
         });
@@ -84,7 +85,7 @@ export function Video() {
     const mergedProgress = merge(progress, newProgress);
     setProgress({ ...mergedProgress });
     fs.writeFileSync(
-      `${dirPath}\\progress.json`,
+      path.join(dirPath, 'progress.json'),
       JSON.stringify(mergedProgress, null, 2)
     );
   };
@@ -134,15 +135,6 @@ export function Video() {
   };
 
   const onVideoProgress = (state: OnProgressProps) => {
-    // updateProgress({
-    //   dict: {
-    //     [progress.currentVideoId]: {
-    //       playedSeconds: state.playedSeconds,
-    //       loadedSeconds: state.loadedSeconds,
-    //     },
-    //   },
-    // });
-
     if (state.loaded === 1 && state.loadedSeconds - state.playedSeconds <= 3) {
       setCheckVideo(progress.currentVideoId, true);
     }
@@ -157,6 +149,20 @@ export function Video() {
     }
   };
 
+  const onConfirmPath = () => {
+    try {
+      const folders = fs
+        .readdirSync(dirPath)
+        .filter((folderName: string) =>
+          fs.lstatSync(path.join(dirPath, folderName)).isDirectory()
+        );
+
+      setFolders(folders);
+    } catch (error) {
+      setDirPath('');
+    }
+  };
+
   useEffect(() => {
     if (!playingVideo && !!progress?.currentVideoId) {
       playVideo(progress.currentVideoId);
@@ -168,7 +174,7 @@ export function Video() {
     if (folders.length === 0) return;
 
     setProgress(loadProgress(dirPath));
-  }, [folders, dirPath])
+  }, [folders, dirPath]);
 
   if (folders.length === 0)
     return (
@@ -179,13 +185,7 @@ export function Video() {
           onChange={(e) => setDirPath(e.target.value)}
         />
         <Button
-          onClick={() => {
-            try {
-              setFolders(fs.readdirSync(dirPath));
-            } catch (error) {
-              setDirPath('');
-            }
-          }}
+          onClick={onConfirmPath}
         >
           Submit
         </Button>
@@ -234,7 +234,7 @@ export function Video() {
                         }
                       >
                         <Checkbox
-                          isChecked={(progress?.dict[video?.id]?.checked)}
+                          isChecked={progress?.dict[video?.id]?.checked}
                           onChange={(e) =>
                             setCheckVideo(video.id, e.target.checked)
                           }
