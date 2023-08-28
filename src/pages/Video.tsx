@@ -22,14 +22,46 @@ import {
 } from '@chakra-ui/react';
 import { OnProgressProps } from 'react-player/base';
 const fs = require('fs');
+const fsp = require('fs').promises;
 const path = require('path');
+
+async function getVideoSecondDurationAsync(path: string) {
+  const buff = Buffer.alloc(100);
+  const header = Buffer.from('mvhd');
+
+  const file = await fsp.open(path, 'r');
+  const { buffer } = await file.read(buff, 0, 100, 0);
+
+  await file.close();
+
+  const start = buffer.indexOf(header) + 17;
+  const timeScale = buffer.readUInt32BE(start);
+  const duration = buffer.readUInt32BE(start + 4);
+  const secondDuration = Math.round(((duration / timeScale) * 1000) / 1000);
+
+  return secondDuration;
+}
+
+function toTimeString(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.floor((totalSeconds % 60));
+
+  if (hours > 0) {
+    return `${hours}h${minutes.toString().padStart(2, '0')}m`;
+  } else if (minutes > 0) {
+    return `${minutes}m${seconds.toString().padStart(2, '0')}s`;
+  } else {
+    return `${seconds}s`;
+  }
+}
 
 const defaultProgress = {
   currentVideoId: null,
   dict: {},
 };
 const loadProgress = (dirPath: string) => {
-  const filePath = `${dirPath}\\progress.json`;
+  const filePath = path.join(dirPath, 'progress.json');
 
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -42,32 +74,8 @@ export function Video() {
   const [playingVideo, setPlayingVideo] = useState<any>(null);
   const [progress, setProgress] = useState<any>(defaultProgress);
   const [folders, setFolders] = useState<string[]>([]);
-  const sections =
-    (folders.map((folderName: string) => {
-      const folderPath = path.join(dirPath, folderName);
-      const files = fs.readdirSync(folderPath);
-      const videos = files
-        .filter((fileName: string) => fileName.endsWith('.mp4'))
-        .map((fileName: string) => {
-          const videoPath = path.join(folderPath, fileName);
-          const srtPath = path.join(
-            folderPath,
-            fileName.replace('.mp4', '.srt')
-          );
-          return {
-            id: `${folderName}-${fileName}`,
-            section: folderName,
-            name: fileName.replace('.mp4', ''),
-            path: videoPath,
-            srtPath,
-          };
-        });
+  const [sections, setSections] = useState<any[]>([]);
 
-      return {
-        name: folderName,
-        videos,
-      };
-    }) as any[]) || [];
   const videos = sections?.flatMap(
     (section: any) => section?.videos || []
   ) as any[];
@@ -92,6 +100,8 @@ export function Video() {
 
   const playVideo = async (videoId: string) => {
     const video = videos.find((video: any) => video.id === videoId);
+    if (!video) return;
+
     const url = loadBlobUrlFromPath(video.path);
     const subtitleUrl = loadBlobFromPath(video.srtPath);
     const textTrackUrl = await toWebVTT(subtitleUrl);
@@ -176,19 +186,57 @@ export function Video() {
     setProgress(loadProgress(dirPath));
   }, [folders, dirPath]);
 
+  useEffect(() => {
+    if (folders.length === 0) return;
+
+    const run = async () => {
+      const sections = await Promise.all(
+        folders.map(async (folderName: string) => {
+          const folderPath = path.join(dirPath, folderName);
+          const files = fs.readdirSync(folderPath);
+          const videos = await Promise.all(
+            files
+              .filter((fileName: string) => fileName.endsWith('.mp4'))
+              .map(async (fileName: string) => {
+                const videoPath = path.join(folderPath, fileName);
+                const duration = await getVideoSecondDurationAsync(videoPath);
+                const srtPath = path.join(
+                  folderPath,
+                  fileName.replace('.mp4', '.srt')
+                );
+                return {
+                  id: `${folderName}-${fileName}`,
+                  section: folderName,
+                  name: fileName.replace('.mp4', '').replace(/\d+ /, ''),
+                  path: videoPath,
+                  srtPath,
+                  duration,
+                };
+              })
+          );
+
+          return {
+            name: folderName.replace(/\d+ /, ''),
+            videos,
+          };
+        }) as any[]
+      );
+
+      setSections(sections);
+    };
+
+    run();
+  }, [folders, setSections]);
+
   if (folders.length === 0)
     return (
       <div>
         <Input
           placeholder="Enter directory path"
           type="text"
-          onChange={(e) => setDirPath(e.target.value)}
+          onChange={(e: any) => setDirPath(e.target.value)}
         />
-        <Button
-          onClick={onConfirmPath}
-        >
-          Submit
-        </Button>
+        <Button onClick={onConfirmPath}>Submit</Button>
       </div>
     );
 
@@ -210,19 +258,27 @@ export function Video() {
         </GridItem>
         <GridItem colSpan={2} overflowY="auto">
           <Accordion allowMultiple>
-            {sections.map((section: any) => (
+            {sections.map((section: any, i: number) => (
               <AccordionItem key={section?.name} bg="gray.300">
                 <AccordionButton>
                   <Box as="span" flex="1" textAlign="left">
                     <Heading as="h3" size="sm">
-                      {section?.name}
+                      {i + 1}. {section?.name}
+                    </Heading>
+                    <Heading as="h4" size="xs" color="gray.500">
+                      {section.videos.filter((video: any) => progress?.dict[video?.id]?.checked).length}/{section.videos.length} videos |{' '}
+                      {toTimeString(
+                        section.videos.reduce(
+                          (acc: any, video: any) => acc + video.duration
+                        , 0)
+                      )}
                     </Heading>
                   </Box>
                   <AccordionIcon />
                 </AccordionButton>
                 <AccordionPanel p={0}>
                   <Stack p={0} spacing={0} divider={<Divider />}>
-                    {section?.videos.map((video: any) => (
+                    {section?.videos.map((video: any, i: number) => (
                       <HStack
                         w="100%"
                         p={1}
@@ -235,13 +291,16 @@ export function Video() {
                       >
                         <Checkbox
                           isChecked={progress?.dict[video?.id]?.checked}
-                          onChange={(e) =>
+                          onChange={(e: any) =>
                             setCheckVideo(video.id, e.target.checked)
                           }
                         />
                         <Box w={'100%'} cursor="pointer">
                           <Text onClick={() => handleClickVideo(video.id)}>
-                            {video.name}
+                            {i + 1}. {video.name}
+                          </Text>
+                          <Text color="gray.500">
+                            {toTimeString(video.duration)}
                           </Text>
                         </Box>
                       </HStack>
