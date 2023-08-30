@@ -1,6 +1,6 @@
 import './App.css';
 import { MemoryRouter as Router, Routes, Route } from 'react-router-dom';
-import { Video } from 'pages/Video';
+import Video from 'pages/Video';
 import { ChakraProvider } from '@chakra-ui/react';
 
 export default function App() {

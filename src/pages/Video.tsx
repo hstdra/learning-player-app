@@ -1,6 +1,6 @@
 import ReactPlayer from 'react-player';
 import toWebVTT from 'srt-webvtt';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { merge } from 'lodash';
 import {
   Accordion,
@@ -21,15 +21,16 @@ import {
   Text,
 } from '@chakra-ui/react';
 import { OnProgressProps } from 'react-player/base';
+
 const fs = require('fs');
 const fsp = require('fs').promises;
 const path = require('path');
 
-async function getVideoSecondDurationAsync(path: string) {
+async function getVideoSecondDurationAsync(videoPath: string) {
   const buff = Buffer.alloc(100);
   const header = Buffer.from('mvhd');
 
-  const file = await fsp.open(path, 'r');
+  const file = await fsp.open(videoPath, 'r');
   const { buffer } = await file.read(buff, 0, 100, 0);
 
   await file.close();
@@ -49,11 +50,13 @@ function toTimeString(totalSeconds: number) {
 
   if (hours > 0) {
     return `${hours}h${minutes.toString().padStart(2, '0')}m`;
-  } else if (minutes > 0) {
-    return `${minutes}m${seconds.toString().padStart(2, '0')}s`;
-  } else {
-    return `${seconds}s`;
   }
+
+  if (minutes > 0) {
+    return `${minutes}m${seconds.toString().padStart(2, '0')}s`;
+  }
+
+  return `${seconds}s`;
 }
 
 const defaultProgress = {
@@ -70,8 +73,8 @@ const loadProgress = (dirPath: string) => {
   }
 };
 
-const loadBlobFromPath = (path: string) => {
-  const buffer = fs.readFileSync(path);
+const loadBlobFromPath = (blobPath: string) => {
+  const buffer = fs.readFileSync(blobPath);
   return new Blob([buffer]);
 };
 
@@ -79,7 +82,7 @@ const loadBlobUrlFromPath = (path: string) => {
   return URL.createObjectURL(loadBlobFromPath(path));
 };
 
-export function Video() {
+export default function Video() {
   const [dirPath, setDirPath] = useState<string>('');
   const [playingVideo, setPlayingVideo] = useState<any>(null);
   const [progress, setProgress] = useState<any>(defaultProgress);
@@ -90,44 +93,50 @@ export function Video() {
     (section: any) => section?.videos || []
   ) as any[];
 
-  const updateProgress = (newProgress: any) => {
-    const mergedProgress = merge(progress, newProgress);
-    setProgress({ ...mergedProgress });
-    fs.writeFileSync(
-      path.join(dirPath, 'progress.json'),
-      JSON.stringify(mergedProgress, null, 2)
-    );
-  };
+  const updateProgress = useCallback(
+    (newProgress: any) => {
+      const mergedProgress = merge(progress, newProgress);
+      setProgress({ ...mergedProgress });
+      fs.writeFileSync(
+        path.join(dirPath, 'progress.json'),
+        JSON.stringify(mergedProgress, null, 2)
+      );
+    },
+    [dirPath, progress]
+  );
 
-  const playVideo = async (videoId: string) => {
-    const video = videos.find((video: any) => video.id === videoId);
-    if (!video) return;
+  const playVideo = useCallback(
+    async (videoId: string) => {
+      const video = videos.find((x: any) => x.id === videoId);
+      if (!video) return;
 
-    const url = loadBlobUrlFromPath(video.path);
-    const subtitleUrl = loadBlobFromPath(video.srtPath);
-    const textTrackUrl = await toWebVTT(subtitleUrl);
+      const url = loadBlobUrlFromPath(video.path);
+      const subtitleUrl = loadBlobFromPath(video.srtPath);
+      const textTrackUrl = await toWebVTT(subtitleUrl);
 
-    setPlayingVideo({
-      url: url,
-      config: {
-        file: {
-          tracks: [
-            {
-              kind: 'subtitles',
-              src: textTrackUrl,
-              srcLang: 'en',
-              label: 'English',
-              default: true,
-              mode: 'showing',
-            },
-          ],
+      setPlayingVideo({
+        url,
+        config: {
+          file: {
+            tracks: [
+              {
+                kind: 'subtitles',
+                src: textTrackUrl,
+                srcLang: 'en',
+                label: 'English',
+                default: true,
+                mode: 'showing',
+              },
+            ],
+          },
         },
-      },
-    });
-    updateProgress({
-      currentVideoId: videoId,
-    });
-  };
+      });
+      updateProgress({
+        currentVideoId: videoId,
+      });
+    },
+    [updateProgress, videos]
+  );
 
   const handleClickVideo = async (videoId: string) => {
     if (progress.currentVideoId === videoId) return;
@@ -162,13 +171,13 @@ export function Video() {
 
   const onConfirmPath = () => {
     try {
-      const folders = fs
+      const newFolders = fs
         .readdirSync(dirPath)
         .filter((folderName: string) =>
           fs.lstatSync(path.join(dirPath, folderName)).isDirectory()
         );
 
-      setFolders(folders);
+      setFolders(newFolders);
     } catch (error) {
       setDirPath('');
     }
@@ -178,21 +187,21 @@ export function Video() {
     if (!playingVideo && !!progress?.currentVideoId && videos.length > 0) {
       playVideo(progress.currentVideoId);
     }
-  }, [progress?.currentVideoId, playingVideo, videos.length]);
+  }, [progress?.currentVideoId, playingVideo, videos.length, playVideo]);
 
   useEffect(() => {
     if (!dirPath) return;
     if (folders.length === 0) return;
 
     setProgress(loadProgress(dirPath));
-  }, [folders, dirPath, setProgress, loadProgress]);
+  }, [folders, dirPath, setProgress]);
 
   // Compute sections when folders changed
   useEffect(() => {
     if (folders.length === 0) return;
 
     const run = async () => {
-      const sections = await Promise.all(
+      const newSections = await Promise.all(
         folders.map(async (folderName: string) => {
           const folderPath = path.join(dirPath, folderName);
           const files = fs.readdirSync(folderPath);
@@ -224,11 +233,11 @@ export function Video() {
         }) as any[]
       );
 
-      setSections(sections);
+      setSections(newSections);
     };
 
     run();
-  }, [folders, setSections]);
+  }, [dirPath, folders, setSections]);
 
   if (folders.length === 0)
     return (
@@ -244,7 +253,7 @@ export function Video() {
 
   return (
     <div>
-      <Grid w="100%" h="100vh" templateColumns="repeat(6, 1fr)" gap={4}>
+      <Grid w="100%" h="100vh" templateColumns="repeat(6, 1fr)" gap={0}>
         <GridItem colSpan={4} bg="papayawhip">
           {playingVideo && (
             <ReactPlayer
